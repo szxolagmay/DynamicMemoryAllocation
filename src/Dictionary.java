@@ -41,4 +41,4 @@ public abstract class Dictionary {
 
     public abstract int sanity(); 
     // Checks the sanity of the data structure.
-    
+}
