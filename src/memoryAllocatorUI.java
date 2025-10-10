@@ -11,7 +11,7 @@ private memoryManager memoryManager = new memoryManager(400);
     private JTextField sizeField, addressField, newSizeField;
     private JButton allocBtn, freeBtn, resizeBtn, resetBtn;
     private ArrayList<Block> blocks = new ArrayList<>();
-    private final int MEMORY_SIZE = 400; // simulated memory units
+    private final int MEMORY_SIZE = 400; // fixed-size simulated memory units
     private int used = 0;
 
     public memoryAllocatorUI() {
@@ -21,7 +21,7 @@ private memoryManager memoryManager = new memoryManager(400);
         setLayout(new BorderLayout());
 
         // TOP INPUT PANEL
-        JPanel inputPanel = new JPanel(new GridLayout(2, 4, 10, 10));
+        JPanel inputPanel = new JPanel(new GridLayout(3, 4, 10, 10));
         inputPanel.setBorder(BorderFactory.createTitledBorder("Memory Controls"));
 
         sizeField = new JTextField();
@@ -33,22 +33,26 @@ private memoryManager memoryManager = new memoryManager(400);
         resizeBtn = new JButton("Resize");
         resetBtn = new JButton("Reset");
 
+        // Row 1 – Allocate
         inputPanel.add(new JLabel("Block Size:"));
         inputPanel.add(sizeField);
         inputPanel.add(allocBtn);
-        inputPanel.add(new JLabel(""));
+        inputPanel.add(new JLabel("")); // empty filler
 
+        // Row 2 – Free
         inputPanel.add(new JLabel("Address:"));
         inputPanel.add(addressField);
         inputPanel.add(freeBtn);
-        inputPanel.add(new JLabel(""));
+        inputPanel.add(new JLabel("")); // empty filler
 
+        // Row 3 – Resize
         inputPanel.add(new JLabel("New Size:"));
         inputPanel.add(newSizeField);
         inputPanel.add(resizeBtn);
-        inputPanel.add(new JLabel(""));
+        inputPanel.add(new JLabel("")); // empty filler
 
         add(inputPanel, BorderLayout.NORTH);
+
 
         // MEMORY VISUAL PANEL
         memoryPanel = new JPanel() {
