@@ -1,6 +1,6 @@
 /**
  * Implements Best Fit and First Fit memory allocation algorithms,
- * with a simple FSM for allocation states.
+ * with a simple FSM for allocation states and fragmentation handling.
  */
 public class Algorithm {
 
@@ -131,5 +131,21 @@ public class Algorithm {
      */
     public void setStrategy(Strategy newStrategy) {
         this.strategy = newStrategy;
+    }
+
+    /**
+     * Calculates and returns external fragmentation amount.
+     * This is the total free memory not available for contiguous allocations.
+     */
+    public int getFragmentation(int requestSize) {
+        int fragmentation = 0;
+        Block current = head;
+        while (current != null) {
+            if (current.isFree && current.size < requestSize) {
+                fragmentation += current.size;
+            }
+            current = current.next;
+        }
+        return fragmentation;
     }
 }
