@@ -1,5 +1,5 @@
 public class Main {
     public static void main(String[] args) {
-        javax.swing.SwingUtilities.invokeLater(MainFrame::new);
+        javax.swing.SwingUtilities.invokeLater(MainUi::new);
     }
 }
