@@ -1,17 +1,166 @@
 import javax.swing.*;
-import javax.swing.border.*;
+import javax.swing.border.LineBorder;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.ActionEvent;
+import java.util.ArrayList;
+import java.util.Comparator;
 
+/**
+ * Fixed and functional version of the user's Swing UI for memory visualization.
+ * - Provides minimal in-file MemoryManager / MemoryBlock / Process implementations so the UI runs.
+ * - Fixes many scoping/bracing and event-listener issues from the original.
+ * - Keeps the original look & feel and placeholder visuals.
+ */
 public class MainUi extends JFrame {
 
-    private Object memoryManager = null; // leave null for now or replace with your manager
+    // --------- Model (simple, in-file) ---------
+    private static class Process {
+        final String id;
+        final int size;
+        public Process(String id, int size) { this.id = id; this.size = size; }
+    }
+
+    private static class MemoryBlock {
+        int start;
+        int end; // inclusive
+        boolean allocated;
+        String processId; // null when free
+
+        MemoryBlock(int start, int end, boolean allocated, String processId) {
+            this.start = start; this.end = end; this.allocated = allocated; this.processId = processId;
+        }
+
+        int size() { return end - start + 1; }
+    }
+
+    private static class MemoryManager {
+        ArrayList<MemoryBlock> memoryBlocks = new ArrayList<>();
+        int memorySize;
+
+        MemoryManager(int memorySize) {
+            this.memorySize = memorySize;
+            memoryBlocks.add(new MemoryBlock(0, memorySize - 1, false, null));
+        }
+
+        // simple helpers
+        private ArrayList<Integer> freeBlockIndices() {
+            ArrayList<Integer> idx = new ArrayList<>();
+            for (int i = 0; i < memoryBlocks.size(); i++) if (!memoryBlocks.get(i).allocated) idx.add(i);
+            return idx;
+        }
+
+        boolean allocateFirstFit(Process p) {
+            return allocateUsingComparator(p, Comparator.naturalOrder()); // iterate order
+        }
+
+        boolean allocateBestFit(Process p) {
+            // choose free block with smallest size >= p.size
+            int best = -1; int bestSize = Integer.MAX_VALUE;
+            for (int i = 0; i < memoryBlocks.size(); i++) {
+                MemoryBlock b = memoryBlocks.get(i);
+                if (!b.allocated && b.size() >= p.size) {
+                    if (b.size() < bestSize) { best = i; bestSize = b.size(); }
+                }
+            }
+            if (best == -1) return false;
+            splitAndAllocate(best, p);
+            return true;
+        }
+
+        boolean allocateWorstFit(Process p) {
+            int worst = -1; int worstSize = -1;
+            for (int i = 0; i < memoryBlocks.size(); i++) {
+                MemoryBlock b = memoryBlocks.get(i);
+                if (!b.allocated && b.size() >= p.size) {
+                    if (b.size() > worstSize) { worst = i; worstSize = b.size(); }
+                }
+            }
+            if (worst == -1) return false;
+            splitAndAllocate(worst, p);
+            return true;
+        }
+
+        // generic method used by first-fit (iterate blocks left->right)
+        private boolean allocateUsingComparator(Process p, Comparator<Integer> cmp) {
+            for (int i = 0; i < memoryBlocks.size(); i++) {
+                MemoryBlock b = memoryBlocks.get(i);
+                if (!b.allocated && b.size() >= p.size) {
+                    splitAndAllocate(i, p);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void splitAndAllocate(int index, Process p) {
+            MemoryBlock b = memoryBlocks.get(index);
+            int blockSize = b.size();
+            if (p.size == blockSize) {
+                b.allocated = true;
+                b.processId = p.id;
+            } else {
+                // split into [allocated block][remaining free]
+                int allocStart = b.start;
+                int allocEnd = allocStart + p.size - 1;
+                MemoryBlock allocatedBlock = new MemoryBlock(allocStart, allocEnd, true, p.id);
+                MemoryBlock remaining = new MemoryBlock(allocEnd + 1, b.end, false, null);
+                memoryBlocks.set(index, allocatedBlock);
+                memoryBlocks.add(index + 1, remaining);
+            }
+            mergeAdjacentFreeBlocks();
+        }
+
+        boolean deallocate(String processId) {
+            boolean found = false;
+            for (MemoryBlock b : memoryBlocks) {
+                if (b.allocated && b.processId != null && b.processId.equals(processId)) {
+                    b.allocated = false;
+                    b.processId = null;
+                    found = true;
+                }
+            }
+            if (found) mergeAdjacentFreeBlocks();
+            return found;
+        }
+
+        void reset() {
+            memoryBlocks.clear();
+            memoryBlocks.add(new MemoryBlock(0, memorySize - 1, false, null));
+        }
+
+        private void mergeAdjacentFreeBlocks() {
+            ArrayList<MemoryBlock> next = new ArrayList<>();
+            for (MemoryBlock b : memoryBlocks) {
+                if (!next.isEmpty() && !b.allocated && !next.get(next.size() - 1).allocated) {
+                    MemoryBlock last = next.get(next.size() - 1);
+                    last.end = b.end; // merge
+                } else {
+                    next.add(new MemoryBlock(b.start, b.end, b.allocated, b.processId));
+                }
+            }
+            memoryBlocks = next;
+        }
+    }
+
+    // --------- UI fields ---------
+    private final MemoryManager memoryManager;
+    private final JTable memoryTable;
+    private final JTextArea summaryArea;
+    private final JTextField sizeField, processIdField, deallocField;
+    private final JComboBox<String> algoBox;
+    private final MemoryVisualizerPanel visualizerPanel;
 
     public MainUi() {
         setTitle("Memory Visualization");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setSize(1000, 600);
         setLocationRelativeTo(null);
+
+        // model
+        memoryManager = new MemoryManager(1000); // default 1000 units
 
         // COLORS
         Color pink = new Color(255, 204, 204);
@@ -29,13 +178,13 @@ public class MainUi extends JFrame {
         leftPanel.setBackground(white);
         leftPanel.setBorder(BorderFactory.createTitledBorder("New Request"));
 
-        JComboBox<String> algoChoice = new JComboBox<>(new String[] { "First Fit", "Best Fit", "Worst Fit" });
-        algoChoice.setBackground(white);
-        algoChoice.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
+        algoBox = new JComboBox<>(new String[] { "First Fit", "Best Fit", "Worst Fit" });
+        algoBox.setBackground(white);
+        algoBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
 
-        JTextField fileSizeField = createPlaceholderField("Enter your file size");
-        JTextField processIdField = createPlaceholderField("Enter the process ID");
-        JTextField deallocField = createPlaceholderField("Enter the process ID");
+        sizeField = createPlaceholderField("Enter your file size");
+        processIdField = createPlaceholderField("Enter the process ID");
+        deallocField = createPlaceholderField("Enter the process ID to deallocate");
 
         JButton allocBtn = new JButton("Allocate");
         JButton deallocBtn = new JButton("Deallocate");
@@ -51,9 +200,9 @@ public class MainUi extends JFrame {
         }
 
         // left side rounded boxes
-        leftPanel.add(createRoundedSection("Select your algorithm:", pink, borderPink, algoChoice));
+        leftPanel.add(createRoundedSection("Select your algorithm:", pink, borderPink, algoBox));
         leftPanel.add(Box.createVerticalStrut(15));
-        leftPanel.add(createRoundedSection("To allocate:", pink, borderPink, fileSizeField, processIdField, allocBtn));
+        leftPanel.add(createRoundedSection("To allocate:", pink, borderPink, sizeField, processIdField, allocBtn));
         leftPanel.add(Box.createVerticalStrut(15));
         leftPanel.add(createRoundedSection("To deallocate:", pink, borderPink, deallocField, deallocBtn));
 
@@ -62,20 +211,21 @@ public class MainUi extends JFrame {
         centerPanel.setBackground(white);
         centerPanel.setBorder(BorderFactory.createTitledBorder("Memory Visualization"));
 
-        // Visualization Panel 
-        MemoryVisualizerPanel visualizerPanel = new MemoryVisualizerPanel(memoryManager);
+        // Visualization Panel
+        visualizerPanel = new MemoryVisualizerPanel(memoryManager);
         visualizerPanel.setPreferredSize(new Dimension(0, 200));
         visualizerPanel.setBackground(pink);
         visualizerPanel.setBorder(new LineBorder(borderPink, 2, true));
 
         // Block List Table
-        JTable table = new JTable(new Object[][] {}, new String[] { "Block", "Start", "End", "Status", "Process ID", "Size" });
-        JScrollPane tableScroll = new JScrollPane(table);
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[] { "Block", "Start", "End", "Allocated", "Process ID", "Size" }, 0);
+        memoryTable = new JTable(tableModel);
+        JScrollPane tableScroll = new JScrollPane(memoryTable);
         tableScroll.getViewport().setBackground(pink);
         tableScroll.setBorder(new LineBorder(borderPink, 2, true));
 
         JLabel blockListLabel = new JLabel("Block List");
-        blockListLabel.setFont(blockListLabel.getFont().deriveFont(Font.BOLD, 14));
+        blockListLabel.setFont(blockListLabel.getFont().deriveFont(Font.BOLD, 14f));
 
         JButton resetBtn = new JButton("Reset");
         resetBtn.setBackground(pink);
@@ -83,17 +233,26 @@ public class MainUi extends JFrame {
         resetBtn.setFocusPainted(false);
         resetBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        // Block List Panel 
-        JPanel blockListPanel = new JPanel();
-        blockListPanel.setLayout(new BoxLayout(blockListPanel, BoxLayout.Y_AXIS));
+        // Block List Panel
+        JPanel blockListPanel = new JPanel(new BorderLayout());
         blockListPanel.setBackground(white);
-        blockListPanel.add(blockListLabel);
-        blockListPanel.add(Box.createVerticalStrut(5));
-        blockListPanel.add(tableScroll);
-        blockListPanel.add(Box.createVerticalStrut(10));
-        blockListPanel.add(resetBtn);
 
-        // Combine Visualization + Table 
+        JPanel topPanel = new JPanel();
+        topPanel.setBackground(white);
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        topPanel.add(blockListLabel);
+        topPanel.add(Box.createVerticalStrut(5));
+        topPanel.add(tableScroll);
+
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottomPanel.setBackground(white);
+        bottomPanel.add(resetBtn);
+
+        blockListPanel.add(topPanel, BorderLayout.CENTER);
+        blockListPanel.add(bottomPanel, BorderLayout.SOUTH);
+
+
+        // Combine Visualization + Table
         JPanel visualizationAndTable = new JPanel(new GridLayout(2, 1, 5, 5));
         visualizationAndTable.setBackground(white);
         visualizationAndTable.add(visualizerPanel); // top: memory visualization
@@ -106,13 +265,14 @@ public class MainUi extends JFrame {
         rightPanel.setBackground(white);
         rightPanel.setBorder(BorderFactory.createTitledBorder("Memory Summary"));
 
-        JTextArea summaryArea = new JTextArea();
+        summaryArea = new JTextArea();
         summaryArea.setBackground(pink);
         summaryArea.setBorder(new LineBorder(borderPink, 2, true));
+        summaryArea.setEditable(false);
 
         rightPanel.add(summaryArea, BorderLayout.CENTER);
 
-        // Combine panels 
+        // Combine panels
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(centerPanel, BorderLayout.CENTER);
         mainPanel.add(rightPanel, BorderLayout.EAST);
@@ -122,7 +282,92 @@ public class MainUi extends JFrame {
         rightPanel.setPreferredSize(new Dimension(250, 0));
 
         add(mainPanel);
+
+        // ----- Action listeners -----
+        allocBtn.addActionListener((ActionEvent e) -> {
+        doAllocate();
+        resetPlaceholder(sizeField, "Enter your file size");
+        resetPlaceholder(processIdField, "Enter the process ID");
+        });
+
+        deallocBtn.addActionListener((ActionEvent e) -> {
+        doDeallocate();
+        resetPlaceholder(deallocField, "Enter the process ID to deallocate");
+        });
+
+        resetBtn.addActionListener((ActionEvent e) -> {
+        memoryManager.reset();
+        updateTableAndView();
+        clearAndResetPlaceholders(); // resets all three fields
+        });
+
+
+        updateTableAndView();
+
         setVisible(true);
+    }
+
+    private void clearAndResetPlaceholders() {
+        resetPlaceholder(sizeField, "Enter your file size");
+        resetPlaceholder(processIdField, "Enter the process ID");
+        resetPlaceholder(deallocField, "Enter the process ID");
+        }
+
+
+    private void resetPlaceholder(JTextField field, String placeholder) {
+        field.setText(placeholder);
+        field.setForeground(Color.GRAY);
+        }
+
+    private void doAllocate() {
+        String id = processIdField.getText().trim();
+        int size;
+        try { size = Integer.parseInt(sizeField.getText().trim()); }
+        catch (Exception ex) { size = -1; }
+        if (id.isEmpty() || size <= 0) {
+            JOptionPane.showMessageDialog(this, "Enter valid Process ID and Memory Size.");
+            return;
+        }
+        boolean result = false;
+        switch ((String) algoBox.getSelectedItem()) {
+            case "First Fit": result = memoryManager.allocateFirstFit(new Process(id, size)); break;
+            case "Best Fit": result = memoryManager.allocateBestFit(new Process(id, size)); break;
+            case "Worst Fit": result = memoryManager.allocateWorstFit(new Process(id, size)); break;
+        }
+        if (!result) JOptionPane.showMessageDialog(this, "Allocation FAILED (insufficient or fragmented memory)");
+        updateTableAndView();
+    }
+
+    private void doDeallocate() {
+        String pid = deallocField.getText().trim();
+        if (pid.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Enter a Process ID to deallocate.");
+            return;
+        }
+        boolean ok = memoryManager.deallocate(pid);
+        if (!ok) JOptionPane.showMessageDialog(this, "No such process allocated!");
+        updateTableAndView();
+    }
+
+    private void updateTableAndView() {
+        DefaultTableModel model = (DefaultTableModel) memoryTable.getModel();
+        model.setRowCount(0);
+        int cnt = 1;
+        int totalFree = 0, used = 0;
+        for (MemoryBlock block : memoryManager.memoryBlocks) {
+            model.addRow(new Object[] {
+                    cnt++, block.start, block.end, block.allocated ? "YES" : "NO",
+                    block.processId == null ? "-" : block.processId, block.size()
+            });
+            if (block.allocated) used += block.size(); else totalFree += block.size();
+        }
+        summaryArea.setText(
+                "Total Memory : " + memoryManager.memorySize +
+                        "\nUsed         : " + used +
+                        "\nFree         : " + totalFree +
+                        "\nBlocks       : " + memoryManager.memoryBlocks.size()
+        );
+        visualizerPanel.repaint();
     }
 
     // Helper: Create Placeholder TextField
@@ -154,12 +399,6 @@ public class MainUi extends JFrame {
     }
 
     // Helper: Create Rounded Section Box
-    private static JPanel createRoundedSection(String title, JComponent... components) {
-        Color defaultBg = new Color(255, 204, 204);
-        Color defaultBorder = new Color(255, 180, 180);
-        return createRoundedSection(title, defaultBg, defaultBorder, components);
-    }
-
     private static JPanel createRoundedSection(String title, Color bg, Color borderColor, JComponent... components) {
         JPanel box = new JPanel();
         box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
@@ -181,16 +420,11 @@ public class MainUi extends JFrame {
         return box;
     }
 
-    // Accepts Object so it won't require a specific MemoryManager type.
-    // Replace with your own implementation to draw actual memory blocks.
+    // Visualization panel
     private static class MemoryVisualizerPanel extends JPanel {
-        private final Object memoryManager;
+        private final MemoryManager manager;
 
-        public MemoryVisualizerPanel(Object memoryManager) {
-            this.memoryManager = memoryManager;
-            // prefer a reasonable minimum height
-            setPreferredSize(new Dimension(100, 180));
-        }
+        MemoryVisualizerPanel(MemoryManager manager) { this.manager = manager; setPreferredSize(new Dimension(100, 180)); }
 
         @Override
         protected void paintComponent(Graphics g) {
@@ -202,40 +436,30 @@ public class MainUi extends JFrame {
                 int w = getWidth();
                 int h = getHeight();
 
-                // background (slightly different for the visualizer area)
                 g2.setColor(new Color(255, 235, 235));
                 g2.fillRect(0, 0, w, h);
 
-                // If memoryManager is null, draw placeholder text
-                if (memoryManager == null) {
-                    g2.setColor(Color.DARK_GRAY);
-                    String msg = "Memory visualizer (no memoryManager assigned)";
-                    FontMetrics fm = g2.getFontMetrics();
-                    int tx = (w - fm.stringWidth(msg)) / 2;
-                    int ty = h / 2;
-                    g2.drawString(msg, tx, ty);
-                    return;
-                }
-
-                // Example drawing: draw a few colored blocks (placeholder)
                 int pad = 10;
                 int barY = pad;
                 int barH = h - 2 * pad;
                 int gap = 6;
 
-                // simulated block sizes (percent)
-                double[] blocks = new double[] { 0.2, 0.15, 0.25, 0.1, 0.3 };
+                // draw the memory as one horizontal bar composed of blocks
                 int x = pad;
-                for (int i = 0; i < blocks.length; i++) {
-                    int bw = (int) ((w - 2 * pad - (blocks.length - 1) * gap) * blocks[i]);
-                    g2.setColor(new Color(200 - i * 20, 150 + i * 10, 170 + i * 10));
-                    g2.fillRoundRect(x, barY, Math.max(10, bw), barH, 8, 8);
+                double scale = (double) (w - 2 * pad - (manager.memoryBlocks.size() - 1) * gap) / manager.memorySize;
+                if (scale <= 0) scale = 1.0 / manager.memorySize;
+
+                for (int i = 0; i < manager.memoryBlocks.size(); i++) {
+                    MemoryBlock b = manager.memoryBlocks.get(i);
+                    int bw = Math.max(6, (int) Math.round(b.size() * scale));
+                    if (b.allocated) g2.setColor(new Color(200, 80, 80)); else g2.setColor(new Color(220, 200, 220));
+                    g2.fillRoundRect(x, barY, bw, barH, 8, 8);
                     g2.setColor(Color.GRAY);
-                    g2.drawRoundRect(x, barY, Math.max(10, bw), barH, 8, 8);
+                    g2.drawRoundRect(x, barY, bw, barH, 8, 8);
 
                     // label inside block
-                    g2.setColor(Color.WHITE);
-                    String lbl = (int) (blocks[i] * 100) + "%";
+                    g2.setColor(b.allocated ? Color.WHITE : Color.DARK_GRAY);
+                    String lbl = (b.allocated ? b.processId : b.size() + " free") ;
                     FontMetrics fm = g2.getFontMetrics();
                     int lblx = x + Math.max(4, (bw - fm.stringWidth(lbl)) / 2);
                     int lbly = barY + (barH + fm.getAscent()) / 2 - 2;
@@ -243,6 +467,7 @@ public class MainUi extends JFrame {
 
                     x += bw + gap;
                 }
+
             } finally {
                 g2.dispose();
             }
