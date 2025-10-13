@@ -234,40 +234,53 @@ public class MainUi extends JFrame {
         visualizationAndTable.add(blockListPanel);
         centerPanel.add(visualizationAndTable, BorderLayout.CENTER);
 
-        // RIGHT PANEL (Processing + Summary)
+        // RIGHT PANEL (Info + Status + Summary) 
         JPanel rightPanel = new JPanel();
         rightPanel.setLayout(new BoxLayout(rightPanel, BoxLayout.Y_AXIS));
         rightPanel.setBackground(white);
         rightPanel.setBorder(BorderFactory.createTitledBorder("Memory Summary"));
 
-        JPanel processingPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        processingPanel.setBackground(white);
+        // Info Box
+        JTextArea infoBox = new JTextArea(
+                "Dynamic memory allocation is the process of assigning the memory space during the execution time or the run time."
+        );
+        infoBox.setWrapStyleWord(true);
+        infoBox.setLineWrap(true);
+        infoBox.setEditable(false);
+        infoBox.setBackground(pink);
+        infoBox.setBorder(new LineBorder(borderPink, 2, true));
+        infoBox.setFont(new Font("Arial", Font.PLAIN, 13));
+        infoBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+
+        // Status Panel
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        statusPanel.setBackground(pink);
+        statusPanel.setBorder(new LineBorder(borderPink, 2, true));
         processingStatusLabel = new JLabel("Status: Idle");
         processingStatusLabel.setFont(new Font("Arial", Font.BOLD, 14));
         processingStatusLabel.setForeground(Color.DARK_GRAY);
-        processingPanel.add(processingStatusLabel);
+        statusPanel.add(processingStatusLabel);
 
+        // Summary Area
         summaryArea = new JTextArea();
         summaryArea.setBackground(pink);
         summaryArea.setBorder(new LineBorder(borderPink, 2, true));
         summaryArea.setEditable(false);
-        summaryArea.setPreferredSize(new Dimension(250, 120));
+        summaryArea.setPreferredSize(new Dimension(250, 150));
 
-        JScrollPane summaryScroll = new JScrollPane(summaryArea);
-        summaryScroll.setBorder(BorderFactory.createEmptyBorder());
-
-        rightPanel.add(processingPanel);
+        rightPanel.add(infoBox);
         rightPanel.add(Box.createVerticalStrut(10));
-        rightPanel.add(summaryScroll);
+        rightPanel.add(statusPanel);
+        rightPanel.add(Box.createVerticalStrut(10));
+        rightPanel.add(summaryArea);
 
+        // Layout
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(centerPanel, BorderLayout.CENTER);
         mainPanel.add(rightPanel, BorderLayout.EAST);
-
-        leftPanel.setPreferredSize(new Dimension(250, 0));
-        rightPanel.setPreferredSize(new Dimension(250, 0));
         add(mainPanel);
 
+        // Button Actions
         allocBtn.addActionListener(e -> {
             doAllocate();
             resetPlaceholder(sizeField, "Enter your file size (KB)");
